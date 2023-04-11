@@ -1,9 +1,32 @@
-from flask import Flask, render_template, request, redirect, session, jsonify
+from flask import Flask, render_template, request, redirect, session, jsonify,g
 import psycopg2
 import hashlib
 
 app = Flask(__name__)
 app.secret_key = "mysecretkey"
+
+DATABASE = {
+    'host': 'localhost',
+    'database': 'mydatabase',
+    'user': 'postgres',
+    'password': 'Naamujaanu!23'
+}
+def get_db():
+   
+    if 'db' not in g:
+        g.db = psycopg2.connect(
+            host=DATABASE['host'],
+            database=DATABASE['database'],
+            user=DATABASE['user'],
+            password=DATABASE['password']
+        )
+    return g.db
+@app.teardown_appcontext
+def close_db(error):
+   
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 @app.route("/")
 def index():
@@ -17,20 +40,15 @@ def register():
         password = request.form["password"]
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
-        conn = psycopg2.connect(
-            host="localhost",
-            database="mydatabase",
-            user="postgres",
-            password="Naamujaanu!23",
-        )
-        cur = conn.cursor()
+        db = get_db()
+        cur = db.cursor()
         cur.execute(
             "INSERT INTO users (username, email, password) VALUES (%s, %s, %s)",
             (username, email, hashed_password),
         )
-        conn.commit()
+        db.commit()
         cur.close()
-        conn.close()
+        db.close()
 
         return redirect("/")
     else:
@@ -43,20 +61,15 @@ def login():
         password = request.form["password"]
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
-        conn = psycopg2.connect(
-            host="localhost",
-            database="mydatabase",
-            user="postgres",
-            password="Naamujaanu!23",
-        )
-        cur = conn.cursor()
+        db = get_db()
+        cur = db.cursor()
         cur.execute(
             "SELECT * FROM users WHERE email=%s AND password=%s",
             (email, hashed_password),
         )
         user = cur.fetchone()
         cur.close()
-        conn.close()
+        db.close()
 
         if user:
             session["user_id"] = user[0]
@@ -69,20 +82,15 @@ def login():
 @app.route("/dashboard")
 def dashboard():
     if "user_id" in session:
-        conn = psycopg2.connect(
-            host="localhost",
-            database="mydatabase",
-            user="postgres",
-            password="Naamujaanu!23",
-        )
-        cur = conn.cursor()
+        db= get_db()
+        cur = db.cursor()
         cur.execute(
             "SELECT username, email FROM users WHERE id=%s",
             (session["user_id"],),
         )
         user_data = cur.fetchone()
         cur.close()
-        conn.close()
+        db.close()
 
     
         user_dict = {"username": user_data[0], "email": user_data[1]}
