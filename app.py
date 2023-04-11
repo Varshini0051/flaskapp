@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, session, jsonify,g
+from flask import Flask, request, redirect, session, jsonify,g
 import psycopg2
 import hashlib
 
@@ -29,15 +29,15 @@ def close_db(error):
         db.close()
 
 @app.route("/")
-def index():
-    return render_template("register.html")
 
-@app.route("/register", methods=["GET", "POST"])
+
+@app.route("/register", methods=["GET","POST"])
 def register():
     if request.method == "POST":
-        username = request.form["username"]
-        email = request.form["email"]
-        password = request.form["password"]
+        get_data=request.get_json()
+        username = get_data["username"]
+        email = get_data["email"]
+        password = get_data["password"]
         hashed_password = hashlib.sha256(password.encode()).hexdigest()
 
         db = get_db()
@@ -50,34 +50,37 @@ def register():
         cur.close()
         db.close()
 
-        return redirect("/")
-    else:
-        return render_template("register.html")
-
-@app.route("/login", methods=["GET", "POST"])
-def login():
-    if request.method == "POST":
-        email = request.form["email"]
-        password = request.form["password"]
-        hashed_password = hashlib.sha256(password.encode()).hexdigest()
-
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            "SELECT * FROM users WHERE email=%s AND password=%s",
-            (email, hashed_password),
-        )
-        user = cur.fetchone()
-        cur.close()
-        db.close()
-
-        if user:
-            session["user_id"] = user[0]
-            return redirect("/dashboard")
+        if get_data is not None:
+            return jsonify({"success": True, "message": "Registration successful"})
         else:
-            return redirect("/")
+            return jsonify({"success": False, "message": "Invalid email or password"})
     else:
-        return render_template("login.html")
+        return jsonify({"message": "Method not allowed"}), 405
+
+@app.route("/login", methods=["GET","POST"])
+def login():
+    data = request.get_json()
+    email = data["email"]
+    password = data["password"]
+    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+
+    db = get_db()
+    cur = db.cursor()
+    cur.execute(
+        "SELECT * FROM users WHERE email=%s AND password=%s",
+        (email, hashed_password),
+    )
+    user = cur.fetchone()
+    cur.close()
+    db.close()
+
+    if user:
+        session["user_id"] = user[0]
+        return jsonify({"success": True, "message": "Login successful"})
+    else:
+        return jsonify({"success": False, "message": "Invalid email or password"})
+
+    # return jsonify("hi")
 
 @app.route("/dashboard")
 def dashboard():
@@ -98,6 +101,45 @@ def dashboard():
         # return render_template("dashboard.html")
     else:
         return redirect("/")
+@app.route('/users', methods=["GET", "POST"])
+def get_users():
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute('SELECT * FROM users')
+    rows = cur.fetchall()
+
+    cur.close()
+    db.close()
+    users=[]
+    for row in rows:
+        user={"id":row[0],"username":row[1],"email":row[2]}
+        users.append(user)
+    if rows is not None:
+        return jsonify(users)
+    else:
+        return jsonify({"message": "Users is empty"}), 404
+
+
+
+@app.route('/users/<int:user_id>', methods=["GET", "POST","PATCH"])
+def get_user(user_id):
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+
+    row = cur.fetchone()
+
+    cur.close()
+    db.close()
+
+    if row is not None:
+        user = {"id": row[0], "username": row[1], "email": row[2]}
+        return jsonify(user)
+    else:
+        return jsonify({"message": "User not found"}), 404
+
 
 @app.route("/logout")
 def logout():
