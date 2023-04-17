@@ -1,32 +1,32 @@
 from flask import Flask, request, redirect, session, jsonify,g
 import re
+import os
 import psycopg2
 from functools import wraps
 import jwt
 import hashlib
+from dotenv import load_dotenv
 from datetime import timedelta
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token, get_jwt_identity
 
+load_dotenv()
+url = os.getenv('url')
+secret_key = os.getenv('secret_key')
+jwt_secret_key= os.getenv('jwt_secret_key')
+
 app = Flask(__name__)
-app.secret_key = "mysecretkey"
-app.config['JWT_SECRET_KEY'] = 'c226cf6f52b5df05f0e8e892fadb67f8af55e4ec446f5bb7b0ac197257dbf882' 
+app.secret_key = secret_key
+app.config['JWT_SECRET_KEY'] = jwt_secret_key
 jwt = JWTManager(app)
 
 
-DATABASE = {
-    'host': 'localhost',
-    'database': 'mydatabase',
-    'user': 'postgres',
-    'password': 'Naamujaanu!23'
-}
+
+
 def get_db():
    
     if 'db' not in g:
         g.db = psycopg2.connect(
-            host=DATABASE['host'],
-            database=DATABASE['database'],
-            user=DATABASE['user'],
-            password=DATABASE['password']
+           url
         )
     return g.db
 @app.teardown_appcontext
@@ -36,38 +36,16 @@ def close_db(error):
     if db is not None:
         db.close()
 
-@app.route("/")
-def token_required(f):
-    @wraps(f)
-    def decorated(*args, **kwargs):
-        token = request.headers.get('Authorization')
-        if not token:
-            return jsonify({'message': 'Token is missing!'}), 401
-        try:
-            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=['HS256'])
-            g.user_id = data['id']
-        except:
-            return jsonify({'message': 'Token is invalid!'}), 401
-        return f(*args, **kwargs)
-    return decorated
-
-
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json()
     username = data["username"]
     email = data["email"]
     password = data["password"]
-
-    # Username validation
     if not re.match(r'^[a-zA-Z0-9]{5,20}$', username):
         return jsonify({"success": False, "message": "Username is invalid"}), 401
-
-    # Email validation
     if not re.match(r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email):
         return jsonify({"success": False, "message": "Email is invalid"}), 401
-
-    # Password validation
     if not re.match(r'^.{5,}$', password):
         return jsonify({"success": False, "message": "Password is invalid"}), 401
 
@@ -124,10 +102,7 @@ def login():
         return jsonify({"success": True, "access_token": access_token})
     else:
         return jsonify({"success": False, "message": "Invalid email or password"}), 401
-
-
     # return jsonify("hi")
-
 @app.route("/dashboard")
 def dashboard():
     if "user_id" in session:
@@ -144,78 +119,58 @@ def dashboard():
     
         user_dict = {"username": user_data[0], "email": user_data[1]}
         return jsonify(user_dict)
-        # return render_template("dashboard.html")
     else:
         return redirect("/")
-@app.route('/users', methods=["GET", "POST"])
-def get_users():
-    db = get_db()
-    cur = db.cursor()
+@app.route('/users/<int:user_id>', methods=["GET","DELETE","PATCH"])
+@jwt_required()
+def user(user_id):
+    if request.method == "GET":
+        db = get_db()
+        cur = db.cursor()
+        cur.execute("SELECT * FROM users WHERE id=%s",(user_id,))
+        user = cur.fetchone()
+        cur.close()
+        db.close()
+        if user:
+            user_dict = {"id": user[0], "username": user[1], "email": user[2]}
+            return jsonify(user_dict)
+        else:
+            return jsonify({"message": "User not found"}), 404
+    elif request.method == "DELETE":
+        db = get_db()
+        cur = db.cursor()
+        cur.execute(
+            "DELETE FROM users WHERE id=%s",
+            (user_id,)
+        )
+        db.commit()
+        cur.close()
+        db.close()
 
-    cur.execute('SELECT * FROM users')
-    rows = cur.fetchall()
+        return jsonify({"message": "User deleted successfully"})
+    elif request.method == "PATCH":
+        db = get_db()
+        cur = db.cursor()
+        data = request.json
+        username = data.get("username")
+        email = data.get("email")
+        # update the user details in the database
+        cur.execute('UPDATE users SET username=%s, email=%s WHERE id=%s', (username, email, user_id))
+        db.commit()
 
-    cur.close()
-    db.close()
-    users=[]
-    for row in rows:
-        user={"id":row[0],"username":row[1],"email":row[2]}
-        users.append(user)
-    if rows is not None:
-        return jsonify(users)
-    else:
-        return jsonify({"message": "Users is empty"}), 404
+        # fetch the updated user details from the database
+        cur.execute('SELECT * FROM users WHERE id = %s', (user_id,))
+        row = cur.fetchone()
 
+        cur.close()
+        db.close()
 
+        if row is not None:
+            user = {"id": row[0], "username": row[1], "email": row[2]}
+            return jsonify(user)
+        else:
+            return jsonify({"message": "User not found"}), 404
 
-# @app.route('/users/<int:user_id>', methods=["GET", "POST","PATCH"])
-# def get_user(user_id):
-#     db = get_db()
-#     cur = db.cursor()
-
-#     cur.execute('SELECT * FROM users WHERE id = %s', (user_id,))
-
-#     row = cur.fetchone()
-
-#     cur.close()
-#     db.close()
-
-#     if row is not None:
-#         user = {"id": row[0], "username": row[1], "email": row[2]}
-#         return jsonify(user)
-#     else:
-#         return jsonify({"message": "User not found"}), 404
-
-@app.route('/users/<int:user_id>', methods=['PATCH'])
-@token_required
-def update_user(user_id):
-    if g.user_id != user_id:
-        return jsonify({'message': 'You are not authorized to modify this user!'}), 401
-
-    # connect to the database
-    db = get_db()
-    cur = db.cursor()
-
-    # get the request data
-    data = request.json
-    username = data.get("username")
-    email = data.get("email")
-    # update the user details in the database
-    cur.execute('UPDATE users SET username=%s, email=%s WHERE id=%s', (username, email, user_id))
-    db.commit()
-
-    # fetch the updated user details from the database
-    cur.execute('SELECT * FROM users WHERE id = %s', (user_id,))
-    row = cur.fetchone()
-
-    cur.close()
-    db.close()
-
-    if row is not None:
-        user = {"id": row[0], "username": row[1], "email": row[2]}
-        return jsonify(user)
-    else:
-        return jsonify({"message": "User not found"}), 404
 
 
 @app.route("/logout")
