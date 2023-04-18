@@ -115,42 +115,40 @@ def dashboard():
         return jsonify(user_dict)
     else:
         return redirect("/")
-@app.route('/users/<int:user_id>', methods=["GET","DELETE","PATCH"])
+@app.route('/users/<int:user_id>', methods=["GET","PATCH"])
 @jwt_required()
 def user(user_id):
-    current_user_id = get_jwt_identity()
-    db = get_db()
-    cur = db.cursor()
-    cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
-    role = cur.fetchone()[0]
-    
-
-    if role != 'Admin':
-        return jsonify({"message": "Only admins are authorized to make changes to the database"}), 403
+    # current_user_id = get_jwt_identity()
+    # db = get_db()
+    # cur = db.cursor()
+    # cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
+    # role = cur.fetchone()[0]
+    # if role != 'Admin':
+    #     return jsonify({"message": "Only admins are authorized to make changes to the database"}), 403
     if request.method == "GET":
         db = get_db()
         cur = db.cursor()
-        cur.execute("SELECT * FROM users WHERE id=%s",(user_id,))
+        cur.execute("SELECT u.id, u.username, u.email, u.role, m.manager_name FROM users u JOIN managers m ON u.manager_id = m.manager_id WHERE u.id = %s;",(user_id,))
         user = cur.fetchone()
         cur.close()
         db.close()
         if user:
-            user_dict = {"id": user[0], "username": user[1], "email": user[2]}
+            user_dict = {"id": user[0], "username": user[1], "email": user[2], "role": user[3], "manager_name": user[4]}
             return jsonify(user_dict)
         else:
             return jsonify({"message": "User not found"}), 404
-    elif request.method == "DELETE":
-        db = get_db()
-        cur = db.cursor()
-        cur.execute(
-            "DELETE FROM users WHERE id=%s",
-            (user_id,)
-        )
-        db.commit()
-        cur.close()
-        db.close()
+    # elif request.method == "DELETE":
+    #     db = get_db()
+    #     cur = db.cursor()
+    #     cur.execute(
+    #         "DELETE FROM users WHERE id=%s",
+    #         (user_id,)
+    #     )
+    #     db.commit()
+    #     cur.close()
+    #     db.close()
 
-        return jsonify({"message": "User deleted successfully"})
+    #     return jsonify({"message": "User deleted successfully"})
     elif request.method == "PATCH":
         db = get_db()
         cur = db.cursor()
@@ -175,7 +173,6 @@ def user(user_id):
             return jsonify({"message": "User not found"}), 404
         
 
-
 @app.route('/add_user', methods=["POST"])
 @jwt_required()
 # define a function to add a new user
@@ -199,7 +196,6 @@ def add_user():
     
     # check if the role is valid
     if user_role not in ['Employee', 'Manager']:
-    # if user_role1!= 'Employee' or user_role1!= 'Manager': 
         return jsonify ({"message": "Invalid role. Role should be either 'Employee' or 'Manager'."}), 403
 
     # # if the role is Manager, check if the manager_id is valid
@@ -251,7 +247,6 @@ def change_manager(user_id):
 @jwt_required()
 def change_role(user_id):
     current_user_id = get_jwt_identity()
-    # check if the user adding the employee has admin role
     new_role = request.json.get('new_role', None)
     db = get_db()
     cur = db.cursor()
@@ -275,7 +270,27 @@ def change_role(user_id):
     db.close()
     return jsonify ({"message": "Role changed successfully."})
 
-
+@app.route('/assign_task/<int:user_id>', methods=["POST","PATCH"])
+@jwt_required()
+# define a function to add task to employee
+def assign_task(user_id):
+    current_user_id = get_jwt_identity()
+    # task = request.get_json('task')
+    task = request.json
+    assigned_task = task.get("task")
+    db = get_db()
+    cur = db.cursor()
+    # check if the user adding the employee has admin role
+    cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
+    role = cur.fetchone()[0]
+    if role != 'Manager':
+        return jsonify({"message": "Only a Manager can assign an employee's task."}), 403
+    # assign task to a Employee
+    cur.execute("UPDATE users SET task_assigned = %s WHERE id = %s;", (assigned_task,user_id))
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify ({"message": "Task assigned successfully."})
 @app.route("/logout")
 def logout():
     session.pop("user_id", None)
