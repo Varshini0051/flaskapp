@@ -19,19 +19,14 @@ app.secret_key = secret_key
 app.config['JWT_SECRET_KEY'] = jwt_secret_key
 jwt = JWTManager(app)
 
-
-
-
 def get_db():
    
     if 'db' not in g:
-        g.db = psycopg2.connect(
-           url
-        )
+        g.db = psycopg2.connect(url)
     return g.db
+
 @app.teardown_appcontext
 def close_db(error):
-   
     db = g.pop('db', None)
     if db is not None:
         db.close()
@@ -85,7 +80,6 @@ def login():
     email = data["email"]
     password = data["password"]
     hashed_password = hashlib.sha256(password.encode()).hexdigest()
-
     db = get_db()
     cur = db.cursor()
     cur.execute(
@@ -124,6 +118,15 @@ def dashboard():
 @app.route('/users/<int:user_id>', methods=["GET","DELETE","PATCH"])
 @jwt_required()
 def user(user_id):
+    current_user_id = get_jwt_identity()
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
+    role = cur.fetchone()[0]
+    
+
+    if role != 'Admin':
+        return jsonify({"message": "Only admins are authorized to make changes to the database"}), 403
     if request.method == "GET":
         db = get_db()
         cur = db.cursor()
@@ -170,7 +173,114 @@ def user(user_id):
             return jsonify(user)
         else:
             return jsonify({"message": "User not found"}), 404
+        
 
+
+@app.route('/add_user', methods=["GET","POST","PATCH"])
+@jwt_required()
+# define a function to add a new user
+def add_user():
+    current_user_id = get_jwt_identity()
+    user_data = request.get_json()
+    username = user_data["username"]
+    email = user_data["email"]
+    password = user_data["password"]
+    user_role= user_data["user_role"]
+    # user_role1= request.json.get('user_role1', None)
+    manager_id = user_data["manager_id"]
+    hashed_password = hashlib.sha256(password.encode()).hexdigest()
+    db = get_db()
+    cur = db.cursor()
+    # check if the user adding the employee has admin role
+    cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
+    role = cur.fetchone()[0]
+    if role != 'Admin':
+        return jsonify({"message": "Only an Admin can add a new employee."}), 403
+    
+    # check if the role is valid
+    if user_role not in ['Employee', 'Manager']:
+    # if user_role1!= 'Employee' or user_role1!= 'Manager': 
+        return jsonify ({"message": "Invalid role. Role should be either 'Employee' or 'Manager'."}), 403
+
+    # # if the role is Manager, check if the manager_id is valid
+    # if user_role == 'Manager':
+    #     cur.execute("SELECT manager_id FROM managers WHERE manager_name =%s", (username,))
+    #     manager_ids = [row[0] for row in cur.fetchall()]
+    #     if manager_id not in manager_ids:
+    #         return jsonify ({"message": "Invalid manager_id."})
+
+    # add the new user
+    cur.execute("INSERT INTO users (username, email, password, role, manager_id) VALUES (%s, %s, %s, %s, %s)", (username, email, hashed_password, user_role, manager_id))
+    db.commit()
+    cur.close()
+    db.close()
+
+    return jsonify ({"message": "New user added successfully."})
+
+# define a function to change an employee's reporting manager
+@app.route('/change_manager/<int:user_id>', methods=["PATCH"])
+@jwt_required()
+def change_manager(user_id):
+    # check if the user adding the employee has admin role
+    current_user_id = get_jwt_identity()
+    new_manager_id = request.json.get('new_manager_id')
+    db = get_db()
+    cur = db.cursor()
+    # check if the user adding the employee has admin role
+    cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
+    role = cur.fetchone()[0]
+    if role != 'Admin':
+        return jsonify({"message": "Only an Admin can change an employee's reporting manager."}), 403
+
+    # check if the user_id and new_manager_id are valid
+    cur.execute("SELECT manager_id FROM managers WHERE manager_id = %s", (new_manager_id,))
+    if cur.fetchone() is None:
+        return jsonify({"message": "Invalid manager_id."})
+    cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    if cur.fetchone() is None:
+        return jsonify({"message": "Invalid user_id."})
+
+    # manager_ids = [row[0] for row in cur.fetchall()]
+    # if new_manager_id not in manager_ids:
+    #     return jsonify ({"message": "Invalid manager_id."})
+
+    # change the manager_id of the employee
+    
+    cur.execute("UPDATE users SET manager_id = %s WHERE id = %s", (new_manager_id, user_id))
+    db.commit()
+    cur.close()
+    db.close()
+
+    return jsonify ({"message":  "Reporting manager changed successfully."})
+
+# define a function to change an employee's role
+@app.route('/change_role/<int:user_id>', methods=["PATCH"])
+@jwt_required()
+def change_role(user_id):
+    current_user_id = get_jwt_identity()
+    # check if the user adding the employee has admin role
+    new_role = request.json.get('new_role', None)
+    db = get_db()
+    cur = db.cursor()
+    # check if the user adding the employee has admin role
+    cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
+    role = cur.fetchone()[0]
+    if role != 'Admin':
+        return jsonify({"message": "Only an Admin can change an employee's role."}), 403
+    
+    # check if the user_id and new_role are valid
+    cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    if cur.fetchone() is None:
+        return jsonify ({"message": "Invalid user_id."})
+    if new_role not in ['Employee', 'Manager']:
+        return jsonify ({"message": "Invalid role. Role should be either 'Employee' or 'Manager'."})
+
+    # change the role of the employee
+    cur.execute("UPDATE users SET role = %s WHERE id = %s", (new_role, user_id))
+    db.commit()
+    cur.close()
+    db.close()
+    return jsonify ({"message": "Role changed successfully."})
 
 
 @app.route("/logout")
