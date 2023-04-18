@@ -176,7 +176,7 @@ def user(user_id):
         
 
 
-@app.route('/add_user', methods=["GET","POST","PATCH"])
+@app.route('/add_user', methods=["POST"])
 @jwt_required()
 # define a function to add a new user
 def add_user():
@@ -239,18 +239,11 @@ def change_manager(user_id):
     cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
     if cur.fetchone() is None:
         return jsonify({"message": "Invalid user_id."})
-
-    # manager_ids = [row[0] for row in cur.fetchall()]
-    # if new_manager_id not in manager_ids:
-    #     return jsonify ({"message": "Invalid manager_id."})
-
-    # change the manager_id of the employee
     
     cur.execute("UPDATE users SET manager_id = %s WHERE id = %s", (new_manager_id, user_id))
     db.commit()
     cur.close()
     db.close()
-
     return jsonify ({"message":  "Reporting manager changed successfully."})
 
 # define a function to change an employee's role
