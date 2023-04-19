@@ -97,58 +97,42 @@ def login():
     else:
         return jsonify({"success": False, "message": "Invalid email or password"}), 401
     # return jsonify("hi")
-@app.route("/dashboard")
-def dashboard():
-    if "user_id" in session:
-        db= get_db()
-        cur = db.cursor()
-        cur.execute(
-            "SELECT username, email FROM users WHERE id=%s",
-            (session["user_id"],),
-        )
-        user_data = cur.fetchone()
-        cur.close()
-        db.close()
 
-    
-        user_dict = {"username": user_data[0], "email": user_data[1]}
-        return jsonify(user_dict)
-    else:
-        return redirect("/")
-@app.route('/users/<int:user_id>', methods=["GET","PATCH"])
+@app.route('/user_details/<int:user_id>', methods=["GET","PATCH"])
 @jwt_required()
-def user(user_id):
-    # current_user_id = get_jwt_identity()
-    # db = get_db()
-    # cur = db.cursor()
-    # cur.execute("SELECT role FROM users WHERE id=%s",(current_user_id,))
-    # role = cur.fetchone()[0]
-    # if role != 'Admin':
-    #     return jsonify({"message": "Only admins are authorized to make changes to the database"}), 403
+def user_details(user_id):
+    #to search by user_id, username
     if request.method == "GET":
         db = get_db()
         cur = db.cursor()
-        cur.execute("SELECT u.id, u.username, u.email, u.role, m.manager_name FROM users u JOIN managers m ON u.manager_id = m.manager_id WHERE u.id = %s;",(user_id,))
-        user = cur.fetchone()
-        cur.close()
-        db.close()
-        if user:
-            user_dict = {"id": user[0], "username": user[1], "email": user[2], "role": user[3], "manager_name": user[4]}
-            return jsonify(user_dict)
-        else:
-            return jsonify({"message": "User not found"}), 404
-    # elif request.method == "DELETE":
-    #     db = get_db()
-    #     cur = db.cursor()
-    #     cur.execute(
-    #         "DELETE FROM users WHERE id=%s",
-    #         (user_id,)
-    #     )
-    #     db.commit()
-    #     cur.close()
-    #     db.close()
-
-    #     return jsonify({"message": "User deleted successfully"})
+        cur.execute("select role from users where id=%s",(user_id,))
+        role= cur.fetchone()[0]
+        #if user_id is employee display details and manager name
+        if (role=="Employee"):
+            cur.execute("SELECT u.id, u.username, u.email, u.role,u.task_assigned, m.manager_name FROM users u JOIN managers m ON u.manager_id = m.manager_id WHERE u.id = %s;",(user_id,))
+            user = cur.fetchone()
+            # cur.close()
+            # db.close()
+            if user:
+                user_dict = {"id": user[0], "username": user[1], "email": user[2], "role": user[3],"assigned_task": user[4], "manager_name": user[5]}
+                return jsonify(user_dict)
+            else:
+                return jsonify({"message": "User not found"}), 404
+        #if user_id is manager display details of employees reporting to this manager
+        elif(role=="Manager"):
+            cur.execute("SELECT u.username FROM users u WHERE u.id=%s",(user_id,))
+            manager_name= cur.fetchone()[0]
+            cur.execute("SELECT   m.manager_name, u.id, u.username, u.email, u.role , u.task_assigned FROM managers m INNER JOIN users u ON m.manager_id = u.manager_id WHERE m.manager_name = %s",(manager_name,))
+            users= cur.fetchall()
+            user_list=[]
+            if users:
+                for user in users:
+                    user_dict = {"employee_id": user[1], "manager_name":user[0], "username": user[2], "email": user[3], "role": user[4], "assigned_task": user[5]}
+                    user_list.append(user_dict)
+                return jsonify(user_list)
+            else:
+                return jsonify({"message": "User not found"}), 404
+    
     elif request.method == "PATCH":
         db = get_db()
         cur = db.cursor()
@@ -171,7 +155,8 @@ def user(user_id):
             return jsonify(user)
         else:
             return jsonify({"message": "User not found"}), 404
-        
+    return jsonify({"message": "Invalid request method"}), 405
+   
 
 @app.route('/add_user', methods=["POST"])
 @jwt_required()
@@ -291,6 +276,7 @@ def assign_task(user_id):
     cur.close()
     db.close()
     return jsonify ({"message": "Task assigned successfully."})
+
 @app.route("/logout")
 def logout():
     session.pop("user_id", None)
